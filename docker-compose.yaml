@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+    reverse-proxy:
+        build:
+            context: ./nginx
+            args:
+                CERTIFICATE_HOST: $CERTIFICATE_HOST
+                CERTIFICATE_DURATION: $CERTIFICATE_DURATION
+        restart: unless-stopped
+        ports:
+            - 80:80
+            - 443:443
+
+    database:
+        image: mariadb:10.9.3
+        restart: unless-stopped
+        command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW --innodb-file-per-table=1 --skip-innodb-read-only-compressed
+        volumes:
+            - ~/volumes/mariadb:/var/lib/mysql
+        environment:
+            - MYSQL_ROOT_PASSWORD=$DATABASE_PASSWORD
+            - MYSQL_DATABASE=nextcloud
+
+    cache:
+        image: redis:7.0.5-alpine
+        restart: unless-stopped
+        command:
+            - /bin/sh
+            - -c
+            - redis-server --requirepass "$${DATABASE_PASSWORD:?DATABASE_PASSWORD variable is not set}"
+        volumes:
+            - ~/volumes/redis:/data
+        env_file:
+            - .env
+
+    cloud:
+        image: nextcloud:25.0.0-apache
+        restart: unless-stopped
+        depends_on:
+            - reverse-proxy
+            - database
+            - cache
+        volumes:
+            - ~/volumes/nextcloud:/var/www/html
+        environment:
+            - MYSQL_USER=root
+            - MYSQL_PASSWORD=$DATABASE_PASSWORD
+            - MYSQL_DATABASE=nextcloud
+            - MYSQL_HOST=database
+            - REDIS_HOST=cache
+            - REDIS_HOST_PASSWORD=$DATABASE_PASSWORD
